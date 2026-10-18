@@ -50,20 +50,20 @@
     <!-- Navigation Tabs -->
     <nav class="tabs-nav">
       <button class="tab-btn active" data-tab="available" onclick="switchTab('available')">
-        📋 Available Polls <span class="badge" id="availableCount">0</span>
+        📋 Daily Polls <span class="badge" id="availableCount">0</span>
       </button>
       <button class="tab-btn" data-tab="sent" onclick="switchTab('sent')">
-        ✅ Sent Polls <span class="badge badge-secondary" id="sentCount">0</span>
+        ✅ Sent History <span class="badge badge-secondary" id="sentCount">0</span>
       </button>
       <button class="tab-btn" data-tab="create" onclick="switchTab('create')">
         ➕ Create Poll
       </button>
     </nav>
 
-    <!-- Tab 1: Available Polls -->
+    <!-- Tab 1: Daily Polls -->
     <section class="tab-content active" id="tab-available">
       <div class="section-header">
-        <h2>Available Polls</h2>
+        <h2>Daily Polls</h2>
         <p>Select any poll below and click <strong>"Send Poll"</strong> to post it directly into your WhatsApp group.</p>
       </div>
       <div class="polls-grid" id="availablePollsGrid">
@@ -72,10 +72,10 @@
       </div>
     </section>
 
-    <!-- Tab 2: Sent Polls -->
+    <!-- Tab 2: Sent History -->
     <section class="tab-content" id="tab-sent">
       <div class="section-header">
-        <h2>Sent Polls</h2>
+        <h2>Sent History</h2>
         <p>Archive of polls that have already been broadcast.</p>
       </div>
       <div class="polls-grid" id="sentPollsGrid">

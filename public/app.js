@@ -108,33 +108,34 @@ async function fetchPolls() {
   renderPolls();
 }
 
-// Render Polls into Available and Sent tabs
+// Render Polls into Daily Polls and Sent History tabs
 function renderPolls() {
   const availableContainer = document.getElementById('availablePollsGrid');
   const sentContainer = document.getElementById('sentPollsGrid');
   const availableCount = document.getElementById('availableCount');
   const sentCount = document.getElementById('sentCount');
 
-  const availablePolls = allPolls.filter(p => p.status === 'available');
-  const sentPolls = allPolls.filter(p => p.status === 'sent');
+  // Daily Polls tab displays all active polls so they are always accessible every day
+  const dailyPolls = allPolls;
+  const sentPolls = allPolls.filter(p => p.lastSentAt);
 
-  availableCount.textContent = availablePolls.length;
+  availableCount.textContent = dailyPolls.length;
   sentCount.textContent = sentPolls.length;
 
-  // Render Available Polls
-  if (availablePolls.length === 0) {
+  // Render Daily Polls
+  if (dailyPolls.length === 0) {
     availableContainer.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🎉</div>
-        <h3>No Available Polls</h3>
-        <p>All polls have been sent, or you can create a new poll in the "Create Poll" tab.</p>
+        <h3>No Polls Found</h3>
+        <p>You can create a new poll in the "Create Poll" tab.</p>
       </div>
     `;
   } else {
-    availableContainer.innerHTML = availablePolls.map(poll => createPollCardHtml(poll, false)).join('');
+    availableContainer.innerHTML = dailyPolls.map(poll => createPollCardHtml(poll, !!poll.lastSentAt)).join('');
   }
 
-  // Render Sent Polls
+  // Render Sent History
   if (sentPolls.length === 0) {
     sentContainer.innerHTML = `
       <div class="empty-state">
