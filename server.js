@@ -23,6 +23,17 @@ let whatsappStatus = 'INITIALIZING'; // 'INITIALIZING', 'QR_READY', 'AUTHENTICAT
 let latestQrDataUrl = null;
 let lastError = null;
 
+// Safety: Prevent server crash on uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught Exception:', err.stack || err);
+  whatsappStatus = 'ERROR';
+  lastError = err.message || String(err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // Initialize WhatsApp Web Client with persistent session
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -37,8 +48,10 @@ const client = new Client({
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-software-rasterizer',
+      '--js-flags=--max-old-space-size=256'
     ]
   }
 });
@@ -485,9 +498,9 @@ async function sendViaUI(pupPage, targetName, text, logFn) {
   await new Promise(r => setTimeout(r, 600));
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
-  console.log(`🚀 Daily Poll Server is running at http://localhost:${PORT}`);
+  console.log(`🚀 Daily Poll Server is running at http://0.0.0.0:${PORT}`);
   console.log(`📁 Environment: WHATSAPP_GROUP_NAME="${process.env.WHATSAPP_GROUP_NAME}"`);
   console.log(`======================================================\n`);
 });
