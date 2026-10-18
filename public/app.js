@@ -60,7 +60,10 @@ function renderStatus(data) {
     closeQrModal();
   } else if (data.status === 'QR_READY') {
     statusDot.className = 'status-dot dot-yellow';
-    statusText.textContent = 'Scan WhatsApp QR';
+    statusText.textContent = data.pairingCode ? 'Pairing Code Ready' : 'Link WhatsApp';
+    if (data.pairingCode) {
+      renderPairingCode(data.pairingCode);
+    }
     if (data.qrCode) {
       qrImage.src = data.qrCode;
       qrImage.style.display = 'block';
@@ -462,3 +465,121 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+/* ==========================================================================
+   PWA Installation & Mobile Support
+   ========================================================================== */
+
+// Register Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('ServiceWorker registration error:', err);
+    });
+  });
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const btn = document.getElementById('btnInstallApp');
+  if (btn) btn.style.display = 'flex';
+});
+
+async function triggerInstallApp() {
+  if (!deferredInstallPrompt) {
+    showToast('To install: Open browser menu (⋮) > Add to Home screen', 'info');
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  const choice = await deferredInstallPrompt.userChoice;
+  if (choice && choice.outcome === 'accepted') {
+    showToast('🎉 Daily Poll app installed successfully!', 'success');
+    const btn = document.getElementById('btnInstallApp');
+    if (btn) btn.style.display = 'none';
+  }
+  deferredInstallPrompt = null;
+}
+
+/* ==========================================================================
+   Phone Number Pairing Code Handlers
+   ========================================================================== */
+
+function switchPairingMethod(method) {
+  const isCode = method === 'code';
+  const tabBtnPairing = document.getElementById('tabBtnPairing');
+  const tabBtnQr = document.getElementById('tabBtnQr');
+  const phoneContainer = document.getElementById('methodPhoneContainer');
+  const qrContainer = document.getElementById('methodQrContainer');
+
+  if (tabBtnPairing) tabBtnPairing.classList.toggle('active', isCode);
+  if (tabBtnQr) tabBtnQr.classList.toggle('active', !isCode);
+  if (phoneContainer) phoneContainer.style.display = isCode ? 'block' : 'none';
+  if (qrContainer) qrContainer.style.display = isCode ? 'none' : 'block';
+}
+
+async function handleRequestPairingCode(event) {
+  event.preventDefault();
+  const phoneInput = document.getElementById('pairingPhoneInput');
+  const btn = document.getElementById('btnGetPairingCode');
+  const phoneNumber = phoneInput.value.trim();
+
+  if (!phoneNumber || phoneNumber.length < 10) {
+    showToast('कृपया वैध 10-अंकी मोबाईल नंबर टाका', 'error');
+    return;
+  }
+
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'कोड मिळवत आहे...';
+
+  try {
+    const res = await fetch('/api/request-pairing-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber })
+    });
+    const data = await res.json();
+
+    if (data.success && data.pairingCode) {
+      renderPairingCode(data.pairingCode);
+      showToast('✅ व्हॉट्सॲप कोड तयार झाला!', 'success');
+    } else {
+      showToast(`❌ ${data.error || 'Failed to get pairing code'}`, 'error');
+    }
+  } catch (err) {
+    showToast('सर्व्हरशी संपर्क होऊ शकला नाही: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
+}
+
+function renderPairingCode(code) {
+  const box = document.getElementById('pairingCodeDisplayBox');
+  const val = document.getElementById('pairingCodeValue');
+  if (!box || !val) return;
+
+  // Format code (e.g. ABCD-1234 or ABCD 1234)
+  let formatted = String(code).trim();
+  if (formatted.length === 8 && !formatted.includes('-') && !formatted.includes(' ')) {
+    formatted = `${formatted.substring(0, 4)} - ${formatted.substring(4)}`;
+  }
+  val.textContent = formatted;
+  box.style.display = 'block';
+}
+
+function copyPairingCode() {
+  const valEl = document.getElementById('pairingCodeValue');
+  if (!valEl) return;
+  const rawCode = valEl.textContent.replace(/[\s-]/g, '');
+  if (!rawCode) return;
+
+  navigator.clipboard.writeText(rawCode).then(() => {
+    showToast('📋 कोड कॉपी झाला! व्हॉट्सॲपमध्ये पेस्ट करा.', 'success');
+  }).catch(() => {
+    showToast('Copy failed, please enter the code manually.', 'error');
+  });
+}
+

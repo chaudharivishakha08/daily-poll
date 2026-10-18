@@ -1036,3 +1036,197 @@ body {
   }
 }
 
+/* ==========================================================================
+   PWA & Phone Number Pairing Code Styles
+   ========================================================================== */
+
+.btn-install-app {
+  background: var(--dark);
+  color: #25d366;
+  border: 1px solid rgba(37, 211, 102, 0.4);
+  padding: 6px 14px;
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.btn-install-app:hover {
+  background: #1e293b;
+  transform: translateY(-1px);
+  border-color: #25d366;
+}
+
+.modal-pairing {
+  max-width: 460px;
+}
+
+.pairing-method-tabs {
+  display: flex;
+  background: var(--gray-100);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  margin-bottom: 18px;
+  gap: 4px;
+}
+
+.method-tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.method-tab-btn.active {
+  background: var(--white);
+  color: var(--dark);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.phone-input-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin: 16px 0;
+  transition: border-color 0.2s;
+}
+
+.phone-input-group:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(18, 140, 126, 0.15);
+}
+
+.country-prefix {
+  background: var(--gray-100);
+  padding: 10px 14px;
+  font-weight: 700;
+  color: var(--gray-700);
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--gray-300);
+}
+
+.phone-input-group input {
+  flex: 1;
+  border: none;
+  padding: 10px 14px;
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.btn-get-code {
+  background: var(--primary);
+  color: var(--white);
+  border: none;
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.btn-get-code:hover {
+  background: var(--primary-hover);
+}
+
+.btn-get-code:disabled {
+  background: var(--gray-400);
+  cursor: not-allowed;
+}
+
+.pairing-code-display {
+  background: #f0fdf4;
+  border: 2px dashed #22c55e;
+  border-radius: var(--radius-md);
+  padding: 18px;
+  margin: 16px 0;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.code-label {
+  font-size: 0.85rem;
+  color: var(--gray-600);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.code-value {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 1.8rem;
+  font-weight: 800;
+  letter-spacing: 5px;
+  color: #15803d;
+  background: var(--white);
+  padding: 8px 16px;
+  border-radius: 8px;
+  display: inline-block;
+  margin-bottom: 12px;
+  border: 1px solid #bbf7d0;
+  user-select: all;
+}
+
+.btn-copy-code {
+  background: #15803d;
+  color: var(--white);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: block;
+  margin: 0 auto 14px auto;
+  transition: background 0.2s;
+}
+
+.btn-copy-code:hover {
+  background: #166534;
+}
+
+.pairing-steps {
+  text-align: left;
+  background: var(--white);
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--gray-700);
+  border: 1px solid #dcfce7;
+}
+
+.pairing-steps strong {
+  color: var(--dark);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.pairing-steps ol {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.5;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+

@@ -21,6 +21,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // WhatsApp Client State Tracking
 let whatsappStatus = 'INITIALIZING'; // 'INITIALIZING', 'QR_READY', 'AUTHENTICATED', 'CONNECTED', 'DISCONNECTED', 'ERROR'
 let latestQrDataUrl = null;
+let latestPairingCode = null;
 let lastError = null;
 
 // Safety: Prevent server crash on uncaught errors
@@ -77,9 +78,19 @@ client.on('qr', async (qr) => {
   }
 });
 
+// Event: Pairing Code received (Alternative to QR)
+client.on('code', (code) => {
+  latestPairingCode = code;
+  whatsappStatus = 'QR_READY';
+  console.log('\n======================================================');
+  console.log(`📲 YOUR 8-DIGIT WHATSAPP PAIRING CODE: ${code}`);
+  console.log('======================================================\n');
+});
+
 // Event: Authenticated successfully
 client.on('authenticated', () => {
   whatsappStatus = 'AUTHENTICATED';
+  latestPairingCode = null;
   console.log('✅ WhatsApp authenticated successfully!');
 });
 
@@ -87,6 +98,7 @@ client.on('authenticated', () => {
 client.on('ready', () => {
   whatsappStatus = 'CONNECTED';
   latestQrDataUrl = null;
+  latestPairingCode = null;
   lastError = null;
   console.log('🚀 WhatsApp Client is ready! You can now send polls to your group.');
 });
@@ -143,10 +155,43 @@ app.get('/api/status', (req, res) => {
   res.json({
     status: whatsappStatus,
     qrCode: latestQrDataUrl,
+    pairingCode: latestPairingCode,
     groupName: process.env.WHATSAPP_GROUP_NAME || '',
     groupId: process.env.WHATSAPP_GROUP_ID || '',
     error: lastError
   });
+});
+
+// API: Request WhatsApp 8-digit Pairing Code via Phone Number
+app.post('/api/request-pairing-code', async (req, res) => {
+  let { phoneNumber } = req.body;
+  if (!phoneNumber) {
+    return res.status(400).json({ success: false, error: 'Phone number is required' });
+  }
+
+  // Clean phone number: keep only digits
+  let cleaned = String(phoneNumber).replace(/\D/g, '');
+  if (cleaned.length === 10) {
+    cleaned = '91' + cleaned; // default to India (+91) if 10 digits
+  }
+
+  if (whatsappStatus === 'CONNECTED') {
+    return res.json({ success: false, error: 'WhatsApp is already connected!' });
+  }
+
+  try {
+    console.log(`📲 Requesting WhatsApp pairing code for: +${cleaned}...`);
+    const code = await client.requestPairingCode(cleaned);
+    latestPairingCode = code;
+    console.log(`✅ Generated Pairing Code: ${code}`);
+    return res.json({ success: true, pairingCode: code });
+  } catch (err) {
+    console.error('❌ Failed to request pairing code:', err);
+    return res.status(500).json({ 
+      success: false, 
+      error: `Could not generate pairing code: ${err.message || err}. Please ensure the client is ready.` 
+    });
+  }
 });
 
 // API: Get all polls

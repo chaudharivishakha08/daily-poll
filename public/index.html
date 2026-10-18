@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Daily Poll Manager | Yuva Varg</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#128c7e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Daily Poll">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -22,10 +29,17 @@
         </div>
       </div>
 
-      <!-- WhatsApp Connection Indicator -->
-      <div class="whatsapp-status-badge" id="statusBadge" onclick="showQrModal()">
-        <span class="status-dot dot-yellow" id="statusDot"></span>
-        <span class="status-text" id="statusText">Checking WhatsApp...</span>
+      <div class="header-right-actions">
+        <!-- PWA Mobile App Install Button -->
+        <button id="btnInstallApp" class="btn-install-app" style="display: none;" onclick="triggerInstallApp()">
+          📲 Install App
+        </button>
+
+        <!-- WhatsApp Connection Indicator -->
+        <div class="whatsapp-status-badge" id="statusBadge" onclick="showQrModal()">
+          <span class="status-dot dot-yellow" id="statusDot"></span>
+          <span class="status-text" id="statusText">Checking WhatsApp...</span>
+        </div>
       </div>
     </div>
   </header>
@@ -158,23 +172,81 @@
     </div>
   </div>
 
-  <!-- QR Code Modal (for WhatsApp Web Login) -->
+  <!-- Link WhatsApp Account Modal (Phone Number Pairing Code & QR Code) -->
   <div class="modal-overlay" id="qrModal">
-    <div class="modal-card">
+    <div class="modal-card modal-pairing">
       <button class="modal-close" onclick="closeQrModal()">&times;</button>
       <div class="modal-header">
         <span class="modal-icon">📲</span>
         <h3>Link WhatsApp Account</h3>
       </div>
-      <p class="modal-desc">
-        Open <strong>WhatsApp</strong> on your phone &gt; Settings &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, and scan the QR code below:
-      </p>
-      <div class="qr-container">
-        <div id="qrLoading" class="qr-loading">Waiting for QR Code...</div>
-        <img id="qrImage" src="" alt="WhatsApp QR Code" style="display: none;">
+
+      <!-- Pairing Method Switcher -->
+      <div class="pairing-method-tabs">
+        <button type="button" class="method-tab-btn active" id="tabBtnPairing" onclick="switchPairingMethod('code')">
+          🔢 Phone Number Code
+        </button>
+        <button type="button" class="method-tab-btn" id="tabBtnQr" onclick="switchPairingMethod('qr')">
+          📷 Scan QR Code
+        </button>
       </div>
+
+      <!-- Method 1: Phone Number Pairing Code (No Camera Scan Needed!) -->
+      <div id="methodPhoneContainer" class="pairing-method-content active">
+        <p class="modal-desc">
+          तुमच्या नंबरवर <strong>८-अंकी कोड</strong> मिळवा (कॅमेऱ्याने स्कॅन करण्याची गरज नाही):
+        </p>
+        
+        <form id="phonePairingForm" onsubmit="handleRequestPairingCode(event)">
+          <div class="phone-input-group">
+            <span class="country-prefix">+91</span>
+            <input 
+              type="tel" 
+              id="pairingPhoneInput" 
+              placeholder="10-अंकी मोबाईल नंबर" 
+              pattern="[0-9]{10}" 
+              maxlength="10" 
+              required
+            >
+            <button type="submit" class="btn-get-code" id="btnGetPairingCode">
+              कोड मिळवा
+            </button>
+          </div>
+        </form>
+
+        <!-- Generated Pairing Code Box -->
+        <div id="pairingCodeDisplayBox" class="pairing-code-display" style="display: none;">
+          <div class="code-label">तुमचा 8-अंकी व्हॉट्सॲप कोड:</div>
+          <div class="code-value" id="pairingCodeValue">---- ----</div>
+          <button type="button" class="btn-copy-code" onclick="copyPairingCode()">
+            📋 Copy Code
+          </button>
+          
+          <div class="pairing-steps">
+            <strong>व्हॉट्सॲपमध्ये कसा टाकायचा?</strong>
+            <ol>
+              <li>फोनमध्ये <strong>WhatsApp</strong> उघडा.</li>
+              <li><strong>Settings</strong> &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong> वर जा.</li>
+              <li>खाली <strong>"Link with phone number instead"</strong> वर क्लिक करा.</li>
+              <li>हा वर दिसणारा कोड तिथे टाईप करा!</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      <!-- Method 2: QR Code (Camera Scan) -->
+      <div id="methodQrContainer" class="pairing-method-content" style="display: none;">
+        <p class="modal-desc">
+          Open <strong>WhatsApp</strong> on your phone &gt; Settings &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, and scan the QR code below:
+        </p>
+        <div class="qr-container">
+          <div id="qrLoading" class="qr-loading">Waiting for QR Code...</div>
+          <img id="qrImage" src="" alt="WhatsApp QR Code" style="display: none;">
+        </div>
+      </div>
+
       <div class="modal-footer">
-        <p class="text-muted">Once scanned, your session will be saved locally so you don't need to scan every time.</p>
+        <p class="text-muted">Once linked, your session will stay active permanently.</p>
       </div>
     </div>
   </div>
