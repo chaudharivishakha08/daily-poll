@@ -51,7 +51,12 @@ const client = new Client({
       '--disable-gpu',
       '--disable-extensions',
       '--disable-software-rasterizer',
-      '--js-flags=--max-old-space-size=256'
+      '--single-process',
+      '--renderer-process-limit=1',
+      '--disable-site-isolation-trials',
+      '--disk-cache-size=1048576',
+      '--media-cache-size=1048576',
+      '--js-flags=--max-old-space-size=180'
     ]
   }
 });
