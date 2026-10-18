@@ -10,7 +10,8 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  Browsers
 } = require('@whiskeysockets/baileys');
 
 // Load environment variables from .env
@@ -117,7 +118,10 @@ async function startBaileys() {
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
       auth: state,
-      browser: ['Daily Poll Manager', 'Chrome', '1.0.0']
+      browser: Browsers.ubuntu('Chrome'),
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 10000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -203,25 +207,28 @@ app.post('/api/request-pairing-code', async (req, res) => {
     return res.json({ success: false, error: 'WhatsApp is already connected!' });
   }
 
-  if (!sock) {
-    return res.status(400).json({
+  if (!sock || whatsappStatus === 'DISCONNECTED') {
+    startBaileys();
+    return res.status(503).json({
       success: false,
-      error: 'WhatsApp client is initializing. Please wait 5 seconds and try again.'
+      error: 'WhatsApp कनेक्शन पुन्हा जोडत आहे... कृपया ५ सेकंद थांबा आणि पुन्हा बटण दाबा.'
     });
   }
 
   try {
     logAction(`📲 Requesting WhatsApp Pairing Code for: +${cleaned}...`);
-    // Native Baileys pairing code generation
     const code = await sock.requestPairingCode(cleaned);
     latestPairingCode = code;
     logAction(`✅ Pairing Code generated: ${code}`);
     return res.json({ success: true, pairingCode: code });
   } catch (err) {
     logAction(`❌ Pairing code failed: ${err.message || err}`);
+    if (String(err.message || '').includes('Connection Closed')) {
+      setTimeout(startBaileys, 1000);
+    }
     return res.status(500).json({
       success: false,
-      error: `Could not generate code: ${err.message || err}`
+      error: `Could not generate code: ${err.message || err}. Please try again in 5 seconds.`
     });
   }
 });
