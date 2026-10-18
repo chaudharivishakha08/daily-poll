@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Poll Manager | Yuva Varg</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-icon">📊</div>
+        <div>
+          <h1>Daily Poll Manager</h1>
+          <p class="subtitle">Broadcast polls to WhatsApp Group</p>
+        </div>
+      </div>
+
+      <!-- WhatsApp Connection Indicator -->
+      <div class="whatsapp-status-badge" id="statusBadge" onclick="showQrModal()">
+        <span class="status-dot dot-yellow" id="statusDot"></span>
+        <span class="status-text" id="statusText">Checking WhatsApp...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-container">
+
+    <!-- Destination Banner -->
+    <div class="target-banner">
+      <div class="banner-left">
+        <span class="banner-icon">💬</span>
+        <div>
+          <span class="banner-label">Target WhatsApp Group:</span>
+          <strong class="banner-group-name" id="displayGroupName">Loading from .env...</strong>
+        </div>
+      </div>
+      <button class="btn-refresh" onclick="refreshData()" title="Refresh Polls & Status">
+        🔄 Refresh
+      </button>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="available" onclick="switchTab('available')">
+        📋 Available Polls <span class="badge" id="availableCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="sent" onclick="switchTab('sent')">
+        ✅ Sent Polls <span class="badge badge-secondary" id="sentCount">0</span>
+      </button>
+      <button class="tab-btn" data-tab="create" onclick="switchTab('create')">
+        ➕ Create Poll
+      </button>
+    </nav>
+
+    <!-- Tab 1: Available Polls -->
+    <section class="tab-content active" id="tab-available">
+      <div class="section-header">
+        <h2>Available Polls</h2>
+        <p>Select any poll below and click <strong>"Send Poll"</strong> to post it directly into your WhatsApp group.</p>
+      </div>
+      <div class="polls-grid" id="availablePollsGrid">
+        <!-- Dynamically rendered via app.js -->
+        <div class="skeleton-card">Loading polls from JSON...</div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Sent Polls -->
+    <section class="tab-content" id="tab-sent">
+      <div class="section-header">
+        <h2>Sent Polls</h2>
+        <p>Archive of polls that have already been broadcast.</p>
+      </div>
+      <div class="polls-grid" id="sentPollsGrid">
+        <!-- Dynamically rendered via app.js -->
+      </div>
+    </section>
+
+    <!-- Tab 3: Create New Poll -->
+    <section class="tab-content" id="tab-create">
+      <div class="section-header">
+        <h2>Create a New Poll</h2>
+        <p>Add a new daily question and options to your polls collection.</p>
+      </div>
+      <div class="create-poll-card">
+        <form id="createPollForm" onsubmit="handleCreatePoll(event)">
+          <div class="form-group">
+            <label for="pollCategory">Category</label>
+            <input type="text" id="pollCategory" placeholder="e.g., Youth Meet, Sports, Discussion" required>
+          </div>
+          <div class="form-group">
+            <label for="pollQuestion">Poll Question</label>
+            <textarea id="pollQuestion" rows="3" placeholder="What would you like to ask the group?" required></textarea>
+            <small class="form-hint">💡 टीप: प्रश्न विचारताना <code>{{date}}</code> वापरल्यास आपोआप आजची तारीख (उदा. १९.१०.२०२६) घेतली जाईल.</small>
+          </div>
+          <div class="form-group">
+            <label>Options (minimum 2)</label>
+            <div id="optionsContainer">
+              <input type="text" class="option-input" placeholder="Option 1" required>
+              <input type="text" class="option-input" placeholder="Option 2" required>
+            </div>
+            <button type="button" class="btn-add-option" onclick="addOptionField()">+ Add Another Option</button>
+          </div>
+          <button type="submit" class="btn-submit">Save Poll to Collection</button>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Edit Poll Modal -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal-card modal-large">
+      <button class="modal-close" onclick="closeEditModal()">&times;</button>
+      <div class="modal-header">
+        <span class="modal-icon">✏️</span>
+        <h3>Edit Poll</h3>
+      </div>
+      <form id="editPollForm" onsubmit="handleSaveEditedPoll(event)">
+        <input type="hidden" id="editPollId">
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="editPollCategory">Category</label>
+            <input type="text" id="editPollCategory" required>
+          </div>
+          <div class="form-group flex-1">
+            <label for="editPollDate">Date</label>
+            <input type="date" id="editPollDate" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="editPollQuestion">Poll Question</label>
+          <textarea id="editPollQuestion" rows="3" required></textarea>
+          <small class="form-hint">💡 टीप: प्रश्न विचारताना <code>{{date}}</code> वापरल्यास आपोआप आजची तारीख (उदा. १९.१०.२०२६) घेतली जाईल.</small>
+        </div>
+        <div class="form-group">
+          <label>Poll Options</label>
+          <div id="editOptionsContainer">
+            <!-- Dynamically populated via app.js -->
+          </div>
+          <button type="button" class="btn-add-option" onclick="addEditOptionRow()">+ Add Option</button>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-delete-poll" onclick="handleDeletePoll()">🗑️ Delete</button>
+          <div class="modal-actions-right">
+            <button type="button" class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+            <button type="submit" class="btn-submit">Save Changes</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- QR Code Modal (for WhatsApp Web Login) -->
+  <div class="modal-overlay" id="qrModal">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeQrModal()">&times;</button>
+      <div class="modal-header">
+        <span class="modal-icon">📲</span>
+        <h3>Link WhatsApp Account</h3>
+      </div>
+      <p class="modal-desc">
+        Open <strong>WhatsApp</strong> on your phone &gt; Settings &gt; <strong>Linked Devices</strong> &gt; <strong>Link a Device</strong>, and scan the QR code below:
+      </p>
+      <div class="qr-container">
+        <div id="qrLoading" class="qr-loading">Waiting for QR Code...</div>
+        <img id="qrImage" src="" alt="WhatsApp QR Code" style="display: none;">
+      </div>
+      <div class="modal-footer">
+        <p class="text-muted">Once scanned, your session will be saved locally so you don't need to scan every time.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
