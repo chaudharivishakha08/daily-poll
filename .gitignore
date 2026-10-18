@@ -4,3 +4,4 @@ node_modules/
 .wwebjs_cache/
 baileys_auth/
 server.log
+package-lock.json
