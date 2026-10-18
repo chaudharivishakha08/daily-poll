@@ -58,6 +58,21 @@ function renderStatus(data) {
     statusDot.className = 'status-dot dot-green';
     statusText.textContent = 'WhatsApp Connected';
     closeQrModal();
+  } else if (data.status === 'AUTHENTICATED') {
+    statusDot.className = 'status-dot dot-yellow';
+    statusText.textContent = 'Syncing WhatsApp...';
+    const pairingBox = document.getElementById('pairingCodeDisplayBox');
+    if (pairingBox) {
+      pairingBox.innerHTML = `
+        <div style="padding: 10px; color: #15803d; font-weight: 700;">
+          🎉 कोड स्वीकारला गेला आहे!<br>
+          <span style="font-size: 0.85rem; font-weight: 500; color: #374151;">
+            व्हॉट्सॲप ग्रुप्स सिंक होत आहेत... कृपया २०-३० सेकंद थांबा, ही विंडो आपोआप बंद होईल.
+          </span>
+        </div>
+      `;
+      pairingBox.style.display = 'block';
+    }
   } else if (data.status === 'QR_READY') {
     statusDot.className = 'status-dot dot-yellow';
     statusText.textContent = data.pairingCode ? 'Pairing Code Ready' : 'Link WhatsApp';

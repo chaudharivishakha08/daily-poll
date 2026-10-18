@@ -1,3 +1,13 @@
+---
+title: Daily Poll WhatsApp
+emoji: 📊
+colorFrom: green
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # 📊 Daily Poll Manager (100% Free WhatsApp Group Integration)
 
 A web application built with **HTML, CSS, JavaScript, and Node.js** to manage daily polls and broadcast them directly into your WhatsApp group as native, interactive WhatsApp polls.

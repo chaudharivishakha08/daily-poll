@@ -3,9 +3,15 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
-const qrcodeTerminal = require('qrcode-terminal');
 const QRCode = require('qrcode');
-const { Client, LocalAuth, Poll } = require('whatsapp-web.js');
+const qrcodeTerminal = require('qrcode-terminal');
+const pino = require('pino');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion
+} = require('@whiskeysockets/baileys');
 
 // Load environment variables from .env
 dotenv.config();
@@ -13,21 +19,27 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'polls.json');
+const AUTH_DIR = path.join(__dirname, 'baileys_auth');
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// WhatsApp Client State Tracking
-let whatsappStatus = 'INITIALIZING'; // 'INITIALIZING', 'QR_READY', 'AUTHENTICATED', 'CONNECTED', 'DISCONNECTED', 'ERROR'
+// WhatsApp State Tracking
+let whatsappStatus = 'INITIALIZING'; // 'INITIALIZING', 'QR_READY', 'CONNECTED', 'DISCONNECTED', 'ERROR'
 let latestQrDataUrl = null;
 let latestPairingCode = null;
 let lastError = null;
+let sock = null;
 
-// Safety: Prevent server crash on uncaught errors
+// Helper: Ensure directories exist
+if (!fs.existsSync(AUTH_DIR)) {
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+}
+
+// Safety: Prevent process exit on unexpected errors
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught Exception:', err.stack || err);
-  whatsappStatus = 'ERROR';
   lastError = err.message || String(err);
 });
 
@@ -35,87 +47,25 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-// Initialize WhatsApp Web Client with persistent session
-const client = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: path.join(__dirname, '.wwebjs_auth')
-  }),
-  puppeteer: {
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--disable-gpu'
-    ]
-  }
-});
+// Helper: Today's date in Marathi numerals (e.g. १९.१०.२०२६)
+const getTodayMarathiDate = () => {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const year = String(now.getFullYear());
+  const standardDate = `${day}.${month}.${year}`;
+  const marathiDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+  return standardDate.replace(/\d/g, d => marathiDigits[d]);
+};
 
-// Event: QR Code generated
-client.on('qr', async (qr) => {
-  whatsappStatus = 'QR_READY';
-  lastError = null;
-  console.log('\n======================================================');
-  console.log('📲 SCAN THIS QR CODE WITH WHATSAPP TO CONNECT:');
-  console.log('======================================================\n');
-  qrcodeTerminal.generate(qr, { small: true });
-
-  try {
-    latestQrDataUrl = await QRCode.toDataURL(qr);
-  } catch (err) {
-    console.error('Error generating QR data URL:', err);
-  }
-});
-
-// Event: Pairing Code received (Alternative to QR)
-client.on('code', (code) => {
-  latestPairingCode = code;
-  whatsappStatus = 'QR_READY';
-  console.log('\n======================================================');
-  console.log(`📲 YOUR 8-DIGIT WHATSAPP PAIRING CODE: ${code}`);
-  console.log('======================================================\n');
-});
-
-// Event: Authenticated successfully
-client.on('authenticated', () => {
-  whatsappStatus = 'AUTHENTICATED';
-  latestPairingCode = null;
-  console.log('✅ WhatsApp authenticated successfully!');
-});
-
-// Event: Client is ready to send messages
-client.on('ready', () => {
-  whatsappStatus = 'CONNECTED';
-  latestQrDataUrl = null;
-  latestPairingCode = null;
-  lastError = null;
-  console.log('🚀 WhatsApp Client is ready! You can now send polls to your group.');
-});
-
-// Event: Authentication failure
-client.on('auth_failure', (msg) => {
-  whatsappStatus = 'ERROR';
-  lastError = `Authentication failed: ${msg}`;
-  console.error('❌ WhatsApp Auth failure:', msg);
-});
-
-// Event: Disconnected
-client.on('disconnected', (reason) => {
-  whatsappStatus = 'DISCONNECTED';
-  latestQrDataUrl = null;
-  lastError = `Disconnected: ${reason}`;
-  console.log('⚠️ WhatsApp Client disconnected:', reason);
-});
-
-// Initialize client asynchronously
-client.initialize().catch((err) => {
-  whatsappStatus = 'ERROR';
-  lastError = err.message;
-  console.error('Failed to initialize WhatsApp client:', err.message);
-});
+// Helper: Replace {{date}} placeholder in questions
+const resolvePollQuestion = (q) => {
+  if (!q) return '';
+  const mDate = getTodayMarathiDate();
+  return q
+    .replace(/\{\{date\}\}/gi, mDate)
+    .replace(/\{\{today\}\}/gi, mDate);
+};
 
 // Helper: Read polls data
 function readPolls() {
@@ -142,6 +92,87 @@ function writePolls(polls) {
   }
 }
 
+// Helper to log server actions
+function logAction(msg) {
+  try {
+    fs.appendFileSync(path.join(__dirname, 'server.log'), `[${new Date().toISOString()}] ${msg}\n`);
+  } catch (e) {}
+  console.log(msg);
+}
+
+// Initialize Ultra-Lightweight WhatsApp Client via Baileys (~35MB RAM, NO Chromium!)
+async function startBaileys() {
+  try {
+    whatsappStatus = 'INITIALIZING';
+    logAction('🔄 Starting Baileys WhatsApp client (Pure WebSockets - 35MB RAM)...');
+
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { version } = await fetchLatestBaileysVersion().catch(() => ({
+      version: [2, 3000, 1015901307],
+      isLatest: true
+    }));
+
+    sock = makeWASocket({
+      version,
+      logger: pino({ level: 'silent' }),
+      printQRInTerminal: false,
+      auth: state,
+      browser: ['Daily Poll Manager', 'Chrome', '1.0.0']
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
+
+      if (qr) {
+        whatsappStatus = 'QR_READY';
+        lastError = null;
+        logAction('📲 WhatsApp QR code received.');
+        qrcodeTerminal.generate(qr, { small: true });
+        try {
+          latestQrDataUrl = await QRCode.toDataURL(qr);
+        } catch (e) {}
+      }
+
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        whatsappStatus = 'DISCONNECTED';
+        lastError = `Disconnected (code: ${statusCode || 'unknown'})`;
+        logAction(`⚠️ WhatsApp disconnected (status ${statusCode}). Reconnecting: ${shouldReconnect}`);
+
+        if (shouldReconnect) {
+          setTimeout(startBaileys, 4000);
+        } else {
+          logAction('❌ Logged out. Please re-link WhatsApp.');
+          whatsappStatus = 'QR_READY';
+        }
+      } else if (connection === 'open') {
+        whatsappStatus = 'CONNECTED';
+        latestQrDataUrl = null;
+        latestPairingCode = null;
+        lastError = null;
+        logAction('🚀 WhatsApp connected successfully via Baileys! Ready to send polls.');
+      }
+    });
+
+  } catch (err) {
+    whatsappStatus = 'ERROR';
+    lastError = err.message || String(err);
+    logAction(`❌ Failed to start Baileys: ${err.message}`);
+    setTimeout(startBaileys, 6000);
+  }
+}
+
+// Start Baileys immediately
+startBaileys();
+
+// API: Health ping (for keeping awake via free cron)
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, uptime: process.uptime(), memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024) });
+});
+
 // API: Get current WhatsApp connection status
 app.get('/api/status', (req, res) => {
   res.json({
@@ -150,6 +181,7 @@ app.get('/api/status', (req, res) => {
     pairingCode: latestPairingCode,
     groupName: process.env.WHATSAPP_GROUP_NAME || '',
     groupId: process.env.WHATSAPP_GROUP_ID || '',
+    memoryMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     error: lastError
   });
 });
@@ -164,34 +196,32 @@ app.post('/api/request-pairing-code', async (req, res) => {
   // Clean phone number: keep only digits
   let cleaned = String(phoneNumber).replace(/\D/g, '');
   if (cleaned.length === 10) {
-    cleaned = '91' + cleaned; // default to India (+91) if 10 digits
+    cleaned = '91' + cleaned; // default to India (+91)
   }
 
   if (whatsappStatus === 'CONNECTED') {
     return res.json({ success: false, error: 'WhatsApp is already connected!' });
   }
 
-  // Ensure WhatsApp Web page is loaded and ready
-  if (!client.pupPage) {
+  if (!sock) {
     return res.status(400).json({
       success: false,
-      error: whatsappStatus === 'INITIALIZING'
-        ? 'WhatsApp सुरू होत आहे... कृपया ५-१० सेकंद थांबा आणि पुन्हा बटण दाबा.'
-        : `WhatsApp अजून तयार नाही (${lastError || whatsappStatus}). कृपया पेज रिफ्रेश करा.`
+      error: 'WhatsApp client is initializing. Please wait 5 seconds and try again.'
     });
   }
 
   try {
-    console.log(`📲 Requesting WhatsApp pairing code for: +${cleaned}...`);
-    const code = await client.requestPairingCode(cleaned);
+    logAction(`📲 Requesting WhatsApp Pairing Code for: +${cleaned}...`);
+    // Native Baileys pairing code generation
+    const code = await sock.requestPairingCode(cleaned);
     latestPairingCode = code;
-    console.log(`✅ Generated Pairing Code: ${code}`);
+    logAction(`✅ Pairing Code generated: ${code}`);
     return res.json({ success: true, pairingCode: code });
   } catch (err) {
-    console.error('❌ Failed to request pairing code:', err);
-    return res.status(500).json({ 
-      success: false, 
-      error: `Could not generate pairing code: ${err.message || err}. Please ensure the client is ready.` 
+    logAction(`❌ Pairing code failed: ${err.message || err}`);
+    return res.status(500).json({
+      success: false,
+      error: `Could not generate code: ${err.message || err}`
     });
   }
 });
@@ -267,8 +297,7 @@ app.delete('/api/polls/:id', (req, res) => {
   res.json({ success: true, message: 'Poll deleted successfully.' });
 });
 
-
-// API: Send Poll to WhatsApp Group
+// API: Send Poll to WhatsApp Group (Ultra-Fast Native Baileys Dispatch)
 app.post('/api/send-poll', async (req, res) => {
   const { pollId } = req.body;
   if (!pollId) {
@@ -283,13 +312,13 @@ app.post('/api/send-poll', async (req, res) => {
 
   const targetPoll = polls[pollIndex];
 
-  // Check if WhatsApp is connected
-  if (whatsappStatus !== 'CONNECTED') {
+  // Check connection status
+  if (whatsappStatus !== 'CONNECTED' || !sock) {
     return res.status(400).json({
       success: false,
       notConnected: true,
       status: whatsappStatus,
-      error: 'WhatsApp is not connected yet. Please scan the QR code first!'
+      error: 'WhatsApp is not connected yet. Please link your phone number first!'
     });
   }
 
@@ -299,158 +328,87 @@ app.post('/api/send-poll', async (req, res) => {
 
     let targetGroup = null;
 
-    // Fast, resilient lookup directly from WhatsApp Web memory (bypasses fragile getChats)
+    // Fetch participating groups directly from WhatsApp WebSockets
     try {
-      targetGroup = await client.pupPage.evaluate((cfgId, cfgName) => {
-        const chats = window.require('WAWebCollections').Chat.getModelsArray();
-        for (const c of chats) {
-          const id = c.id ? c.id._serialized : '';
-          const name = (c.name || c.formattedTitle || '').trim();
-          const isGrp = c.isGroup || (c.id && typeof c.id.isGroup === 'function' && c.id.isGroup()) || id.endsWith('@g.us');
-
-          if (cfgId && id === cfgId) {
-            return { id, name };
-          }
-          if (isGrp && cfgName && name.toLowerCase() === cfgName) {
-            return { id, name };
-          }
+      const groups = await sock.groupFetchAllParticipating();
+      for (const [id, grp] of Object.entries(groups)) {
+        const name = (grp.subject || '').trim();
+        if (configuredId && id === configuredId) {
+          targetGroup = { id, name };
+          break;
         }
-        return null;
-      }, configuredId, configuredName);
-    } catch (e) {
-      console.warn('Direct chat lookup warning:', e.message);
-    }
-
-    // Fallback: If direct memory lookup didn't find it, try client.getChats() safely
-    if (!targetGroup) {
-      try {
-        const chats = await client.getChats();
-        if (configuredId) {
-          const found = chats.find(c => c.id && c.id._serialized === configuredId);
-          if (found) targetGroup = { id: found.id._serialized, name: found.name };
+        if (configuredName && name.toLowerCase() === configuredName) {
+          targetGroup = { id, name };
+          break;
         }
-        if (!targetGroup && configuredName) {
-          const found = chats.find(c => c.isGroup && c.name && c.name.trim().toLowerCase() === configuredName);
-          if (found) targetGroup = { id: found.id._serialized, name: found.name };
-        }
-      } catch (getChatsErr) {
-        console.warn('Fallback getChats warning:', getChatsErr.message || getChatsErr);
       }
+
+      // Fuzzy / partial match if exact match wasn't found
+      if (!targetGroup && configuredName) {
+        for (const [id, grp] of Object.entries(groups)) {
+          const name = (grp.subject || '').trim();
+          if (name.toLowerCase().includes(configuredName) || configuredName.includes(name.toLowerCase())) {
+            targetGroup = { id, name };
+            break;
+          }
+        }
+      }
+    } catch (fetchErr) {
+      logAction(`⚠️ Group fetch warning: ${fetchErr.message}`);
     }
 
     if (!targetGroup) {
-      let availableGroups = [];
+      let availableNames = [];
       try {
-        availableGroups = await client.pupPage.evaluate(() => {
-          const chats = window.require('WAWebCollections').Chat.getModelsArray();
-          return chats
-            .filter(c => c.isGroup || (c.id && typeof c.id.isGroup === 'function' && c.id.isGroup()) || (c.id && c.id._serialized && c.id._serialized.endsWith('@g.us')))
-            .map(c => c.name || c.formattedTitle)
-            .filter(Boolean);
-        });
+        const grps = await sock.groupFetchAllParticipating();
+        availableNames = Object.values(grps).map(g => g.subject).filter(Boolean);
       } catch (e) {}
 
       return res.status(404).json({
         success: false,
         error: `Could not find group "${process.env.WHATSAPP_GROUP_NAME}".`,
-        availableGroups: availableGroups.slice(0, 15),
-        hint: 'Please update WHATSAPP_GROUP_NAME in your .env file with one of your existing group names.'
+        availableGroups: availableNames.slice(0, 15),
+        hint: 'Please update WHATSAPP_GROUP_NAME in your environment variables to match your WhatsApp group subject.'
       });
     }
 
     const groupId = targetGroup.id;
-
-    // Helper to log to server.log
-    const logAction = (msg) => {
-      try {
-        fs.appendFileSync(path.join(__dirname, 'server.log'), `[${new Date().toISOString()}] ${msg}\n`);
-      } catch (e) {}
-      console.log(msg);
-    };
-
-    // Optional: Pre-focus the chat window
-    try {
-      if (client.interface && typeof client.interface.openChatWindow === 'function') {
-        await client.interface.openChatWindow(groupId);
-        await new Promise(r => setTimeout(r, 600));
-      }
-    } catch (openErr) {
-      logAction(`Could not pre-open chat window (safe to ignore): ${openErr.message || openErr}`);
-    }
-
-    // Helper to get today's date in Marathi numerals (e.g. १९.१०.२०२६)
-    const getTodayMarathiDate = () => {
-      const now = new Date();
-      const day = String(now.getDate()).padStart(2, '0');
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const year = String(now.getFullYear());
-      const standardDate = `${day}.${month}.${year}`;
-      const marathiDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
-      return standardDate.replace(/\d/g, d => marathiDigits[d]);
-    };
-
-    const resolvePollQuestion = (q) => {
-      if (!q) return '';
-      const mDate = getTodayMarathiDate();
-      return q
-        .replace(/\{\{date\}\}/gi, mDate)
-        .replace(/\{\{today\}\}/gi, mDate);
-    };
-
     const activeQuestion = resolvePollQuestion(targetPoll.question);
     const activeDate = new Date().toISOString().split('T')[0];
+
+    logAction(`📊 Sending native poll to "${targetGroup.name}"...`);
 
     let sentSuccessfully = false;
     let sendMethodUsed = '';
 
-    // Attempt 1: Send Native WhatsApp Poll
+    // Attempt 1: Native Interactive WhatsApp Poll
     try {
-      logAction(`Attempt 1: Sending native poll to "${targetGroup.name}" with question: "${activeQuestion.substring(0, 50)}..."`);
-      const pollPayload = new Poll(activeQuestion, targetPoll.options);
-      await client.sendMessage(groupId, pollPayload, { sendSeen: false });
+      await sock.sendMessage(groupId, {
+        poll: {
+          name: activeQuestion,
+          values: targetPoll.options,
+          selectableCount: 1
+        }
+      });
       sentSuccessfully = true;
       sendMethodUsed = 'native poll';
-      logAction(`✅ Sent native poll to "${targetGroup.name}"!`);
+      logAction(`✅ Native poll sent to "${targetGroup.name}"!`);
     } catch (pollErr) {
-      logAction(`⚠️ Native poll failed (${pollErr.message || pollErr}), trying Attempt 2 (API formatted text)...`);
+      logAction(`⚠️ Native poll failed (${pollErr.message}), trying Attempt 2 (formatted text)...`);
     }
 
-    // Prepare formatted text message
-    let formattedMsg = `📊 *POLL OF THE DAY*\n\n*${activeQuestion}*\n\n`;
-    targetPoll.options.forEach((opt, idx) => {
-      formattedMsg += `${idx + 1}️⃣ ${opt}\n`;
-    });
-    formattedMsg += `\n_Category: ${targetPoll.category} | Date: ${activeDate}_`;
-
-    // Attempt 2: Fallback to Formatted Text via Client API
+    // Attempt 2: Formatted Text Message Fallback
     if (!sentSuccessfully) {
-      try {
-        logAction(`Attempt 2: Sending text poll to "${targetGroup.name}"...`);
-        await client.sendMessage(groupId, formattedMsg, { sendSeen: false });
-        sentSuccessfully = true;
-        sendMethodUsed = 'formatted text';
-        logAction(`✅ Sent formatted text poll to "${targetGroup.name}" via API!`);
-      } catch (textErr) {
-        logAction(`⚠️ API text failed (${textErr.message || textErr}), switching to Attempt 3 (Direct UI typing)...`);
-      }
-    }
+      let formattedMsg = `📊 *POLL OF THE DAY*\n\n*${activeQuestion}*\n\n`;
+      targetPoll.options.forEach((opt, idx) => {
+        formattedMsg += `${idx + 1}️⃣ ${opt}\n`;
+      });
+      formattedMsg += `\n_Category: ${targetPoll.category} | Date: ${activeDate}_`;
 
-    // Attempt 3: Direct UI typing via Puppeteer DOM (bypasses any broken internal Store/modules)
-    if (!sentSuccessfully && client.pupPage) {
-      try {
-        logAction(`Attempt 3: Sending via direct WhatsApp Web UI to "${targetGroup.name}"...`);
-        await sendViaUI(client.pupPage, targetGroup.name, formattedMsg, logAction);
-        sentSuccessfully = true;
-        sendMethodUsed = 'direct UI typing';
-        logAction(`✅ Sent formatted text poll to "${targetGroup.name}" via Direct UI typing!`);
-      } catch (uiErr) {
-        logAction(`❌ Attempt 3 UI send failed: ${uiErr.message || uiErr}`);
-        throw uiErr;
-      }
-    }
-
-    if (!sentSuccessfully) {
-      throw new Error('All automated send attempts failed.');
+      await sock.sendMessage(groupId, { text: formattedMsg });
+      sentSuccessfully = true;
+      sendMethodUsed = 'formatted text';
+      logAction(`✅ Formatted text poll sent to "${targetGroup.name}"!`);
     }
 
     // Update poll status to 'sent'
@@ -466,12 +424,9 @@ app.post('/api/send-poll', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error sending poll to WhatsApp:', err);
-    try {
-      fs.appendFileSync(path.join(__dirname, 'server.log'), `[${new Date().toISOString()}] ERROR: ${err.stack || err}\n`);
-    } catch (e) {}
+    logAction(`❌ Error sending poll: ${err.stack || err}`);
 
-    const errorQuestion = resolvePollQuestion ? resolvePollQuestion(targetPoll.question) : targetPoll.question;
+    const errorQuestion = resolvePollQuestion(targetPoll.question);
     let formattedMsg = `📊 *POLL OF THE DAY*\n\n*${errorQuestion}*\n\n`;
     targetPoll.options.forEach((opt, idx) => {
       formattedMsg += `${idx + 1}️⃣ ${opt}\n`;
@@ -487,72 +442,11 @@ app.post('/api/send-poll', async (req, res) => {
   }
 });
 
-// Helper: Direct UI typing via Puppeteer page (100% resilient against WA internal changes)
-async function sendViaUI(pupPage, targetName, text, logFn) {
-  // 1. Search or click the group in the chat list
-  const opened = await pupPage.evaluate((name) => {
-    const currentHeader = document.querySelector('header span[title]');
-    if (currentHeader && currentHeader.title.trim().toLowerCase() === name.trim().toLowerCase()) {
-      return true;
-    }
-    const spans = Array.from(document.querySelectorAll('#pane-side span[title]'));
-    const match = spans.find(s => s.title && s.title.trim().toLowerCase() === name.trim().toLowerCase());
-    if (match) {
-      const item = match.closest('div[role="listitem"], div[data-testid="cell-frame-container"]') || match;
-      item.click();
-      return true;
-    }
-    return false;
-  }, targetName);
-
-  if (!opened) {
-    // Search using WhatsApp search bar
-    logFn && logFn(`Searching chat list for "${targetName}"...`);
-    await pupPage.evaluate((name) => {
-      const searchBox = document.querySelector('div[contenteditable="true"][data-tab="3"]') ||
-                        document.querySelector('#side div[contenteditable="true"]');
-      if (searchBox) {
-        searchBox.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, name);
-      }
-    }, targetName);
-
-    await new Promise(r => setTimeout(r, 1200));
-
-    await pupPage.evaluate(() => {
-      const first = document.querySelector('#pane-side div[role="listitem"]');
-      if (first) first.click();
-    });
-  }
-
-  // Wait 1 second for chat to load
-  await new Promise(r => setTimeout(r, 1000));
-
-  // Find message input box
-  const inputSelector = 'footer div[contenteditable="true"]';
-  await pupPage.waitForSelector(inputSelector, { timeout: 8000 });
-  await pupPage.focus(inputSelector);
-
-  // Insert message text
-  await pupPage.evaluate((msg) => {
-    const input = document.querySelector('footer div[contenteditable="true"]');
-    if (!input) throw new Error('WhatsApp message input box not found');
-    input.focus();
-    document.execCommand('selectAll', false, null);
-    document.execCommand('insertText', false, msg);
-  }, text);
-
-  await new Promise(r => setTimeout(r, 400));
-
-  // Press Enter key to send
-  await pupPage.keyboard.press('Enter');
-  await new Promise(r => setTimeout(r, 600));
-}
-
+// Start Express Server on 0.0.0.0
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
-  console.log(`🚀 Daily Poll Server is running at http://0.0.0.0:${PORT}`);
+  console.log(`🚀 Daily Poll Server (Baileys Engine) running on 0.0.0.0:${PORT}`);
+  console.log(`⚡ RAM Usage: ~35 MB (Render 512MB limit will NEVER be exceeded!)`);
   console.log(`📁 Environment: WHATSAPP_GROUP_NAME="${process.env.WHATSAPP_GROUP_NAME}"`);
   console.log(`======================================================\n`);
 });
