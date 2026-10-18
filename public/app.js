@@ -75,6 +75,7 @@ function renderStatus(data) {
   } else if (data.status === 'ERROR') {
     statusDot.className = 'status-dot dot-red';
     statusText.textContent = 'WhatsApp Error';
+    statusBadge.title = data.error || 'WhatsApp initialization failed. Check server logs.';
   } else {
     statusDot.className = 'status-dot dot-yellow';
     statusText.textContent = 'Initializing WhatsApp...';

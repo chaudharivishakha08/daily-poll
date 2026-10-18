@@ -49,15 +49,7 @@ const client = new Client({
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-software-rasterizer',
-      '--single-process',
-      '--renderer-process-limit=1',
-      '--disable-site-isolation-trials',
-      '--disk-cache-size=1048576',
-      '--media-cache-size=1048576',
-      '--js-flags=--max-old-space-size=180'
+      '--disable-gpu'
     ]
   }
 });
@@ -177,6 +169,16 @@ app.post('/api/request-pairing-code', async (req, res) => {
 
   if (whatsappStatus === 'CONNECTED') {
     return res.json({ success: false, error: 'WhatsApp is already connected!' });
+  }
+
+  // Ensure WhatsApp Web page is loaded and ready
+  if (!client.pupPage) {
+    return res.status(400).json({
+      success: false,
+      error: whatsappStatus === 'INITIALIZING'
+        ? 'WhatsApp सुरू होत आहे... कृपया ५-१० सेकंद थांबा आणि पुन्हा बटण दाबा.'
+        : `WhatsApp अजून तयार नाही (${lastError || whatsappStatus}). कृपया पेज रिफ्रेश करा.`
+    });
   }
 
   try {
